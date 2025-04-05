@@ -1,0 +1,271 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from IPython.display import HTML
+
+def kuramoto_model(theta, omega, K, N):
+    """
+    Fungsi untuk menghitung turunan fase dalam model Kuramoto.
+    
+    Parameters:
+    -----------
+    theta : array
+        Array fase dari semua osilator
+    omega : array
+        Array frekuensi natural dari semua osilator
+    K : float
+        Konstanta kopling
+    N : int
+        Jumlah osilator
+    
+    Returns:
+    --------
+    d_theta : array
+        Turunan fase untuk setiap osilator
+    """
+    d_theta = np.zeros(N)
+    for i in range(N):
+        d_theta[i] = omega[i]
+        for j in range(N):
+            d_theta[i] += (K/N) * np.sin(theta[j] - theta[i])
+    return d_theta
+
+def runge_kutta4(theta, omega, K, N, h):
+    """
+    Metode Runge-Kutta orde 4 untuk model Kuramoto.
+    
+    Parameters:
+    -----------
+    theta : array
+        Array fase dari semua osilator
+    omega : array
+        Array frekuensi natural dari semua osilator
+    K : float
+        Konstanta kopling
+    N : int
+        Jumlah osilator
+    h : float
+        Ukuran langkah waktu
+    
+    Returns:
+    --------
+    theta_next : array
+        Array fase yang diperbarui
+    """
+    k1 = kuramoto_model(theta, omega, K, N)
+    k2 = kuramoto_model(theta + 0.5 * h * k1, omega, K, N)
+    k3 = kuramoto_model(theta + 0.5 * h * k2, omega, K, N)
+    k4 = kuramoto_model(theta + h * k3, omega, K, N)
+    
+    theta_next = theta + h * (k1 + 2*k2 + 2*k3 + k4) / 6
+    return theta_next
+
+def order_parameter(theta):
+    """
+    Menghitung parameter orde Kuramoto.
+    
+    Parameters:
+    -----------
+    theta : array
+        Array fase dari semua osilator
+    
+    Returns:
+    --------
+    r : float
+        Amplitudo parameter orde (0 ≤ r ≤ 1)
+    psi : float
+        Fase rata-rata
+    """
+    z = np.mean(np.exp(1j * theta))
+    r = np.abs(z)
+    psi = np.angle(z)
+    return r, psi
+
+def simulate_kuramoto(N=50, K_values=[0.0, 0.5, 1.0, 2.0], T=20.0, dt=0.01):
+    """
+    Simulasi model Kuramoto dengan beberapa nilai kopling K.
+    
+    Parameters:
+    -----------
+    N : int
+        Jumlah osilator
+    K_values : list
+        Daftar nilai konstanta kopling K yang akan disimulasikan
+    T : float
+        Waktu total simulasi
+    dt : float
+        Langkah waktu
+    
+    Returns:
+    --------
+    results : dict
+        Dictionary berisi hasil simulasi untuk setiap nilai K
+    """
+    # Inisialisasi frekuensi natural dari distribusi Gaussian
+    np.random.seed(42)  # untuk reprodusibilitas
+    omega = np.random.normal(0, 0.1, N)
+    
+    # Inisialisasi fase acak
+    initial_theta = np.random.uniform(0, 2*np.pi, N)
+    
+    steps = int(T / dt)
+    t_values = np.arange(0, T, dt)
+    
+    results = {}
+    
+    for K in K_values:
+        # Inisialisasi array untuk menyimpan hasil
+        theta_history = np.zeros((steps, N))
+        r_history = np.zeros(steps)
+        psi_history = np.zeros(steps)
+        
+        # Set kondisi awal
+        theta = initial_theta.copy()
+        theta_history[0] = theta
+        r_history[0], psi_history[0] = order_parameter(theta)
+        
+        # Simulasi
+        for step in range(1, steps):
+            theta = runge_kutta4(theta, omega, K, N, dt)
+            theta_history[step] = theta
+            r_history[step], psi_history[step] = order_parameter(theta)
+        
+        results[K] = {
+            'theta': theta_history,
+            'r': r_history,
+            'psi': psi_history,
+            't': t_values
+        }
+    
+    return results, omega
+
+def plot_results(results, omega, N, K_values):
+    """
+    Memplot hasil simulasi model Kuramoto.
+    
+    Parameters:
+    -----------
+    results : dict
+        Dictionary berisi hasil simulasi untuk setiap nilai K
+    omega : array
+        Array frekuensi natural dari semua osilator
+    N : int
+        Jumlah osilator
+    K_values : list
+        Daftar nilai konstanta kopling K yang disimulasikan
+    """
+    num_plots = len(K_values)
+    fig, axs = plt.subplots(num_plots, 2, figsize=(15, 4*num_plots))
+    
+    for i, K in enumerate(K_values):
+        result = results[K]
+        t_values = result['t']
+        r_history = result['r']
+        theta_final = result['theta'][-1]
+        
+        # Plot parameter orde r vs waktu
+        axs[i, 0].plot(t_values, r_history)
+        axs[i, 0].set_xlabel('Waktu')
+        axs[i, 0].set_ylabel('Parameter Orde (r)')
+        axs[i, 0].set_title(f'Parameter Orde vs Waktu (K={K})')
+        axs[i, 0].grid(True)
+        axs[i, 0].set_ylim(0, 1.05)
+        
+        # Plot distribusi fase akhir
+        axs[i, 1].scatter(omega, np.mod(theta_final, 2*np.pi), alpha=0.7)
+        axs[i, 1].set_xlabel('Frekuensi Natural (ω)')
+        axs[i, 1].set_ylabel('Fase Akhir (θ)')
+        axs[i, 1].set_title(f'Distribusi Fase Akhir (K={K})')
+        axs[i, 1].grid(True)
+        axs[i, 1].set_ylim(0, 2*np.pi)
+    
+    plt.tight_layout()
+    plt.show()
+
+def create_animation(results, K_value):
+    """
+    Membuat animasi osilator Kuramoto pada lingkaran satuan.
+    
+    Parameters:
+    -----------
+    results : dict
+        Dictionary berisi hasil simulasi
+    K_value : float
+        Konstanta kopling yang akan dianimasi
+    
+    Returns:
+    --------
+    animation : FuncAnimation
+        Animasi matplotlib
+    """
+    result = results[K_value]
+    theta_history = result['theta']
+    r_history = result['r']
+    
+    # Ambil subset frame untuk animasi (untuk efisiensi)
+    frame_interval = max(1, int(len(theta_history) / 200))
+    theta_subset = theta_history[::frame_interval]
+    r_subset = r_history[::frame_interval]
+    
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={'projection': 'polar'})
+    
+    # Inisialisasi plot
+    scat = ax.scatter([], [], s=30, alpha=0.7)
+    line = ax.plot([], [], 'r-', linewidth=2)[0]
+    time_text = ax.text(0.05, 0.95, '', transform=ax.transAxes)
+    r_text = ax.text(0.05, 0.90, '', transform=ax.transAxes)
+    
+    ax.set_rticks([0.5, 1.0])
+    ax.set_rlim(0, 1.1)
+    
+    def init():
+        scat.set_offsets(np.empty((0, 2)))
+        line.set_data([], [])
+        time_text.set_text('')
+        r_text.set_text('')
+        return scat, line, time_text, r_text
+    
+    def update(frame):
+        theta = theta_subset[frame]
+        r = r_subset[frame]
+        
+        # Konversi ke koordinat kartesian
+        x = np.cos(theta)
+        y = np.sin(theta)
+        
+        scat.set_offsets(np.column_stack([theta, np.ones_like(theta)]))
+        
+        # Plot garis rata-rata fase
+        angles = np.linspace(0, 2*np.pi, 100)
+        line.set_data(angles, r * np.ones_like(angles))
+        
+        time_text.set_text(f'Waktu: {frame * frame_interval * 0.01:.2f}s')
+        r_text.set_text(f'Parameter Orde (r): {r:.2f}')
+        
+        return scat, line, time_text, r_text
+    
+    ani = FuncAnimation(fig, update, frames=len(theta_subset),
+                       init_func=init, blit=True, interval=50)
+    
+    plt.close(fig)  # Agar tidak menampilkan dua kali
+    return ani
+
+def main():
+    # Parameter simulasi
+    N = 50  # Jumlah osilator
+    K_values = [0.0, 0.5, 1.0, 2.0]  # Nilai konstanta kopling
+    T = 20.0  # Waktu total simulasi
+    dt = 0.01  # Langkah waktu
+    
+    # Jalankan simulasi
+    results, omega = simulate_kuramoto(N, K_values, T, dt)
+    
+    # Plot hasil
+    plot_results(results, omega, N, K_values)
+    
+    # Buat dan tampilkan animasi untuk K = 1.0
+    animation = create_animation(results, 1.0)
+    return HTML(animation.to_jshtml())
+
+if __name__ == "__main__":
+    main()
